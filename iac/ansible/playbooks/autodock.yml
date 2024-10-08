@@ -1,7 +1,0 @@
----
-- name: "Deploy Kubernetes"
-  hosts: kubernetes-hosts
-  tasks:
-    - name: "Test."
-      ansible.builtin.debug:
-        msg: "hi"

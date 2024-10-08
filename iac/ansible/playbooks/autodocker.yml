@@ -1,0 +1,46 @@
+---
+- name: "Autodocker"
+  hosts: kubernetes-hosts
+  vars:
+    K8S_AUTODOCKER_NAMESPACE: 'autodocker-service'
+    K8S_SERVICE_AIRFLOW_NAME: 'airflow'
+    K8S_SERVICE_AIRFLOW_SERVICE_NAME: "{{ K8S_SERVICE_AIRFLOW_NAME }}-service"
+    K8S_SERVICE_AIRFLOW_WEB_PORT: '8080'
+    K8S_SERVICE_AIRFLOW_WEB_PROTOCOL: 'tcp'
+
+  tasks:
+    - name: "Test."
+      ansible.builtin.debug:
+        msg: "hi"
+    - name: "Create autodocker namespace if it does not exist."
+      community.kubernetes.k8s:
+        name: "{{ K8S_AUTODOCKER_NAMESPACE }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+    - name: "Create the Airflow Service."
+      community.kubernetes.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: "{{ K8S_SERVICE_AIRFLOW_SERVICE_NAME }}"
+            namespace: "{{K8S_AUTODOCKER_NAMESPACE}}"
+            labels:
+              app: "{{ K8S_SERVICE_AIRFLOW_NAME }}"
+              service: "{{ K8S_SERVICE_AIRFLOW_SERVICE_NAME }}"
+          spec:
+            selector:
+              app: "{{ K8S_SERVICE_AIRFLOW_NAME }}"
+              service: "{{ K8S_SERVICE_AIRFLOW_SERVICE_NAME }}"
+            ports:
+            - protocol: "{{ K8S_SERVICE_AIRFLOW_WEB_PROTOCOL | uppercase }}"
+              targetPort: 88080
+              name: "{{ K8S_SERVICE_AIRFLOW_NAME }}-{{ K8S_SERVICE_AIRFLOW_WEB_PORT }}-{{ K8S_SERVICE_AIRFLOW_WEB_PROTOCOL }}"
+              port: 8080
+
+    - name: Create a Deployment by reading the definition from a local file
+      community.kubernetes.k8s:
+        state: present
+        src: ./autodocker/airflow/deployment.yml
