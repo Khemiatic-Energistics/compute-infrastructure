@@ -35,10 +35,10 @@
               app: "{{ K8S_SERVICE_AIRFLOW_NAME }}"
               service: "{{ K8S_SERVICE_AIRFLOW_SERVICE_NAME }}"
             ports:
-            - protocol: "{{ K8S_SERVICE_AIRFLOW_WEB_PROTOCOL | uppercase }}"
-              targetPort: 88080
-              name: "{{ K8S_SERVICE_AIRFLOW_NAME }}-{{ K8S_SERVICE_AIRFLOW_WEB_PORT }}-{{ K8S_SERVICE_AIRFLOW_WEB_PROTOCOL }}"
-              port: 8080
+              - protocol: "{{ K8S_SERVICE_AIRFLOW_WEB_PROTOCOL | uppercase }}"
+                targetPort: 88080
+                name: "{{ K8S_SERVICE_AIRFLOW_NAME }}-{{ K8S_SERVICE_AIRFLOW_WEB_PORT }}-{{ K8S_SERVICE_AIRFLOW_WEB_PROTOCOL }}"
+                port: 8080
 
     - name: Create a Deployment by reading the definition from a local file
       community.kubernetes.k8s:
