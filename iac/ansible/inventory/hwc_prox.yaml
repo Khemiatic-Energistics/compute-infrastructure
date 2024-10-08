@@ -1,6 +1,6 @@
 autodock:
   children:
-    k8s-hosts:
+    k8s_hosts:
       vars:
         K8S_ANSIBLE_USER: k8s_user
       hosts:

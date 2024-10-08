@@ -1,6 +1,6 @@
 ---
 - name: "Deploy Kubernetes"
-  hosts: k8s-hosts
+  hosts: k8s_hosts
 
   tasks:
   - name: "Test"
@@ -15,3 +15,8 @@
     include_role:
       name: rke2-server
     when: type == "server"
+
+  - name: "Install rke2-server"
+    include_role:
+      name: rke2-agent
+    when: type == "agent"

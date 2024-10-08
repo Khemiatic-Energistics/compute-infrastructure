@@ -3,7 +3,7 @@
 - name: Install RKE2
   become: true
   shell: |
-    curl -sfL https://get.rke2.io | sh -
+    curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" sh -
   register: rke2_install_result
   changed_when: rke2_install_result.rc == 0
 
