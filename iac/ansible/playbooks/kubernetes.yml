@@ -1,22 +1,35 @@
 ---
-- name: "Deploy Kubernetes"
+
+# Play 1: Deploy RKE2 on Remote Hosts
+- name: "Deploy Kubernetes Nodes"
   hosts: k8s_hosts
+  become: true
 
   tasks:
-  - name: "Test"
-    ansible.builtin.debug:
-      msg: "hi"
+    - name: "Test"
+      ansible.builtin.debug:
+        msg: "hi"
 
-  - name: "Include rke2-common"
-    include_role:
-      name: rke2-common
+    - name: "Include rke2-common"
+      include_role:
+        name: rke2-common
 
-  - name: "Install rke2-server"
-    include_role:
-      name: rke2-server
-    when: type == "server"
+    - name: "Install rke2-server"
+      include_role:
+        name: rke2-server
+      when: type == "server"
 
-  - name: "Install rke2-server"
-    include_role:
-      name: rke2-agent
-    when: type == "agent"
+    - name: "Install rke2-agent"
+      include_role:
+        name: rke2-agent
+      when: type == "agent"
+
+# Play 2: Deploy Backend Components on Control Node
+- name: "Deploy Backend Components"
+  hosts: localhost
+  become: false
+
+  tasks:
+    - name: "Include backend role"
+      include_role:
+        name: backend

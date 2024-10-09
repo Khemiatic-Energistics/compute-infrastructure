@@ -1,3 +1,5 @@
+---
+
 - name: Install RKE2
   become: true
   shell: |
@@ -36,20 +38,47 @@
     dest: /home/{{ ansible_user }}/.kube/config
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
-    mode: '0600'
+    mode: '0644'
 
-- name: Set KUBECONFIG environment variable
-  lineinfile:
-    path: ~/.bashrc
-    line: 'export KUBECONFIG=/home/{{ ansible_user }}/.kube/config'
-    state: present
+- name: Install Helm on control node
+  become: false
+  delegate_to: localhost
+  shell: |
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  args:
+    creates: /usr/local/bin/helm
+
+
+- name: Add kubectl and helm aliases and completions to bashrc
+  become: true
+  blockinfile:
+    path: "/home/{{ ansible_user }}/.bashrc"
+    marker: "# K8S CONFIGURATION BLOCK #"
+    block: |
+      # Alias for kubectl
+      alias k=kubectl
+
+      # Set kubeconfig path
+      export KUBECONFIG=/home/{{ ansible_user }}/.kube/config
+
+      # Add kubectl and other tools to PATH
+      export PATH=$PATH:/usr/local/bin
+
+      # Enable kubectl and helm completion
+      source <(kubectl completion bash)
+      source <(helm completion bash)
+
+      # Completion for alias
+      complete -F __start_kubectl k
 
 - name: Reload bashrc to activate KUBECONFIG
-  shell: source ~/.bashrc
+  become: true
+  shell: source /home/{{ ansible_user }}/.bashrc
   args:
     executable: /bin/bash
 
 - name: Create Calico IP pool to resolve IP exhaustion issue
+  become: true
   shell: |
     cat <<EOF | kubectl apply -f - --kubeconfig /home/{{ ansible_user }}/.kube/config --validate=false
     apiVersion: crd.projectcalico.org/v1
@@ -57,13 +86,15 @@
     metadata:
       name: default-ipv4-ippool
     spec:
-      cidr: 10.42.0.0/16
-      blockSize: 24
+      cidr: 10.43.0.0/16
+      blockSize: 26
       ipipMode: Always
       vxlanMode: Never
       natOutgoing: true
       nodeSelector: all()
     EOF
-  become: true
   args:
     executable: /bin/bash
+
+
+

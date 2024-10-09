@@ -6,29 +6,63 @@
   args:
     executable: "/bin/bash"
 
-- name: Cert-Manager
-  kubernetes.core.helm:
+- name: Ensure Cert-Manager namespace exists
+  community.kubernetes.k8s:
+    state: present
+    kind: Namespace
+    name: kube-system
+  delegate_to: localhost
+
+
+- name: Install Cert-Manager
+  community.kubernetes.helm:
     name: cert-manager
     chart_ref: jetstack/cert-manager
-    release_namespace: kube-system
+    namespace: kube-system
+  delegate_to: localhost
 
-- name: MetalLB
-  kubernetes.core.helm:
+- name: Ensure MetalLB namespace exists
+  community.kubernetes.k8s:
+    state: present
+    kind: Namespace
+    name: metallb-system
+  delegate_to: localhost
+
+- name: Install MetalLB with configuration via Helm
+  community.kubernetes.helm:
     name: metallb
     chart_ref: metallb/metallb
-    release_namespace: metallb-system
-    set_values:
-      configInline:
-        ipAddressPools:
-          - name: first-pool
+    namespace: metallb-system
+    values:
+      extraManifests:
+        - apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: first-pool
+            namespace: metallb-system
+          spec:
             addresses:
               - 192.168.1.200-192.168.1.220
-        l2Advertisements:
-          - ipAddressPools:
+        - apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: l2-advertisement
+            namespace: metallb-system
+          spec:
+            ipAddressPools:
               - first-pool
+  delegate_to: localhost
 
-- name: Longhorn
-  kubernetes.core.helm:
+- name: Ensure Longhorn namespace exists
+  community.kubernetes.k8s:
+    state: present
+    kind: Namespace
+    name: longhorn-system
+  delegate_to: localhost
+
+- name: Install Longhorn
+  community.kubernetes.helm:
     name: longhorn
     chart_ref: longhorn/longhorn
-    release_namespace: longhorn-system
+    namespace: longhorn-system
+  delegate_to: localhost
