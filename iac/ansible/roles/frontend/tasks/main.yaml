@@ -1,0 +1,7 @@
+- name: Jupyter
+  ansible.builtin.debug:
+      msg: "hi"
+
+- name: Airflow
+  ansible.builtin.debug:
+      msg: "hi"

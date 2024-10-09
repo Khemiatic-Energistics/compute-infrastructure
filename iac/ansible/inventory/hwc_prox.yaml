@@ -17,3 +17,11 @@ autodock:
           ansible_host: 192.168.1.107
           type: agent
           ansible_user: "{{K8S_ANSIBLE_USER}}"
+        # k8s1w:
+        #   ansible_host: 192.168.1.248
+        #   type: agent
+        #   ansible_user: "{{K8S_ANSIBLE_USER}}"
+        # k8s2w:
+        #   ansible_host: 192.168.1.190
+        #   type: agent
+        #   ansible_user: "{{K8S_ANSIBLE_USER}}"

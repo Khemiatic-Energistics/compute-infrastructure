@@ -1,5 +1,39 @@
 - name: Install Curl
-  package: 
+  package:
     name: curl
     state: present
 
+- name: Install kubectl
+  become: true
+  shell: |
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+  args:
+    creates: /usr/local/bin/kubectl
+
+- name: Grant read permissions for /etc/rancher/rke2/rke2.yaml
+  become: true
+  file:
+    path: /etc/rancher/rke2/rke2.yaml
+    mode: '0644'
+    owner: root
+    group: root
+
+- name: Append alias for kubectl to bashrc
+  lineinfile:
+    path: ~/.bashrc
+    regexp: '^alias k=kubectl$'
+    line: 'alias k=kubectl'
+    state: present
+
+- name: Export KUBECONFIG environment variable
+  lineinfile:
+    path: ~/.bashrc
+    regexp: '^export KUBECONFIG=/etc/rancher/rke2/rke2.yaml$'
+    line: 'export KUBECONFIG=/etc/rancher/rke2/rke2.yaml'
+    state: present
+
+- name: Reload bashrc for new alias
+  shell: source ~/.bashrc
+  args:
+    executable: /bin/bash

@@ -1,5 +1,3 @@
-## First pre-check for the install
-
 - name: Install RKE2
   become: true
   shell: |
@@ -14,3 +12,58 @@
     enabled: yes
     state: started
 
+- name: Wait for Kubernetes API server to be ready
+  become: true
+  retries: 30
+  delay: 10
+  command: kubectl get nodes --kubeconfig /etc/rancher/rke2/rke2.yaml
+  register: result
+  until: result.rc == 0
+
+- name: Create .kube directory in user's home directory
+  become: true
+  file:
+    path: /home/{{ ansible_user }}/.kube
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+
+- name: Copy kubeconfig to user's .kube directory
+  become: true
+  copy:
+    src: /etc/rancher/rke2/rke2.yaml
+    dest: /home/{{ ansible_user }}/.kube/config
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+
+- name: Set KUBECONFIG environment variable
+  lineinfile:
+    path: ~/.bashrc
+    line: 'export KUBECONFIG=/home/{{ ansible_user }}/.kube/config'
+    state: present
+
+- name: Reload bashrc to activate KUBECONFIG
+  shell: source ~/.bashrc
+  args:
+    executable: /bin/bash
+
+- name: Create Calico IP pool to resolve IP exhaustion issue
+  shell: |
+    cat <<EOF | kubectl apply -f - --kubeconfig /home/{{ ansible_user }}/.kube/config --validate=false
+    apiVersion: crd.projectcalico.org/v1
+    kind: IPPool
+    metadata:
+      name: default-ipv4-ippool
+    spec:
+      cidr: 10.42.0.0/16
+      blockSize: 24
+      ipipMode: Always
+      vxlanMode: Never
+      natOutgoing: true
+      nodeSelector: all()
+    EOF
+  become: true
+  args:
+    executable: /bin/bash

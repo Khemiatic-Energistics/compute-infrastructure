@@ -1,0 +1,34 @@
+- name: Check if Helm command is installed locally
+  ansible.builtin.shell: hash helm
+  delegate_to: 127.0.0.1
+  run_once: true
+  changed_when: false
+  args:
+    executable: "/bin/bash"
+
+- name: Cert-Manager
+  kubernetes.core.helm:
+    name: cert-manager
+    chart_ref: jetstack/cert-manager
+    release_namespace: kube-system
+
+- name: MetalLB
+  kubernetes.core.helm:
+    name: metallb
+    chart_ref: metallb/metallb
+    release_namespace: metallb-system
+    set_values:
+      configInline:
+        ipAddressPools:
+          - name: first-pool
+            addresses:
+              - 192.168.1.200-192.168.1.220
+        l2Advertisements:
+          - ipAddressPools:
+              - first-pool
+
+- name: Longhorn
+  kubernetes.core.helm:
+    name: longhorn
+    chart_ref: longhorn/longhorn
+    release_namespace: longhorn-system
