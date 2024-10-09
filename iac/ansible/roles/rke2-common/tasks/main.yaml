@@ -4,3 +4,7 @@
     name: curl
     state: present
 
+- name: Install iptables
+  package:
+    name: iptables
+    state: present
