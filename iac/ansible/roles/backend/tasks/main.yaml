@@ -11,7 +11,7 @@
     state: present
     kind: Namespace
     name: kube-system
-  delegate_to: localhost
+
 
 
 - name: Install Cert-Manager
@@ -19,14 +19,14 @@
     name: cert-manager
     chart_ref: jetstack/cert-manager
     namespace: kube-system
-  delegate_to: localhost
+
 
 - name: Ensure MetalLB namespace exists
   community.kubernetes.k8s:
     state: present
     kind: Namespace
     name: metallb-system
-  delegate_to: localhost
+
 
 - name: Install MetalLB with configuration via Helm
   community.kubernetes.helm:
@@ -51,18 +51,18 @@
           spec:
             ipAddressPools:
               - first-pool
-  delegate_to: localhost
+
 
 - name: Ensure Longhorn namespace exists
   community.kubernetes.k8s:
     state: present
     kind: Namespace
     name: longhorn-system
-  delegate_to: localhost
+
 
 - name: Install Longhorn
   community.kubernetes.helm:
     name: longhorn
     chart_ref: longhorn/longhorn
     namespace: longhorn-system
-  delegate_to: localhost
+
