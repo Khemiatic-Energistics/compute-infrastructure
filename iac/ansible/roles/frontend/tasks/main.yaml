@@ -1,7 +1,33 @@
+
+
+- name: Add jupyter charts repo
+  community.kubernetes.helm_repository:
+    name: jupyterhub
+    repo_url: https://hub.jupyter.org/helm-chart/
+    repo_state: present
+
+- name: debug
+  shell:
+    cmd: whoami
+
 - name: Jupyter
-  ansible.builtin.debug:
-      msg: "hi"
+  become_user: k8s_user
+  community.kubernetes.helm:
+    name: jupyterhub
+    chart_ref: jupyterhub/jupyterhub
+    namespace: jupyterhub
+    values_files: "/home/k8s_user/jupyter/values.yaml"
+
+- name: Add airlfow charts repo
+  community.kubernetes.helm_repository:
+    name: apache-airflow
+    repo_url: https://airflow.apache.org
+    repo_state: present
 
 - name: Airflow
-  ansible.builtin.debug:
-      msg: "hi"
+  community.kubernetes.helm:
+    name: airflow
+    chart_ref: apache-airflow/airflow
+    namespace: jupyterhub
+    values_files: "/home/hwcoepland/autodocker/rke2/jupter/values.yaml"
+
