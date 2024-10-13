@@ -5,13 +5,22 @@
   register: rke2_install_result
   changed_when: rke2_install_result.rc == 0
 
+- name: Ensure /etc/rancher/rke2 dir exists
+  become: true
+  file:
+    path: /etc/rancher/rke2
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
 - name: Configure RKE2 agent
   template:
     src: config.yaml.j2
     dest: /etc/rancher/rke2/config.yaml
     owner: root
     group: root
-    mode: '0600'
+    mode: '0644'
 
 - name: Enable and start rke2-agent service
   become: true
