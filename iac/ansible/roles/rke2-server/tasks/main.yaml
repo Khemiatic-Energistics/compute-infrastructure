@@ -22,24 +22,6 @@
   register: result
   until: result.rc == 0
 
-- name: Create .kube directory in user's home directory
-  become: true
-  file:
-    path: /home/{{ ansible_user }}/.kube
-    state: directory
-    owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-    mode: '0755'
-
-- name: Copy kubeconfig to user's .kube directory
-  become: true
-  copy:
-    src: /etc/rancher/rke2/rke2.yaml
-    dest: /home/{{ ansible_user }}/.kube/config
-    owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-    mode: '0644'
-
 - name: Install Helm on control node
   become: false
   delegate_to: localhost
@@ -48,12 +30,11 @@
   args:
     creates: /usr/local/bin/helm
 
-
 - name: Add kubectl and helm aliases and completions to bashrc
   become: true
   blockinfile:
     path: "/home/{{ ansible_user }}/.bashrc"
-    marker: "# K8S CONFIGURATION BLOCK #"
+    marker: "# {mark} K8S CONFIGURATION BLOCK"
     block: |
       # Alias for kubectl
       alias k=kubectl
@@ -70,6 +51,7 @@
 
       # Completion for alias
       complete -F __start_kubectl k
+
 
 - name: Reload bashrc to activate KUBECONFIG
   become: true

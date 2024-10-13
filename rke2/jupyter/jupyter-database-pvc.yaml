@@ -7,5 +7,5 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 20Gi
-  storageClassName: longhorn-ssd
+      storage: 1Gi
+  storageClassName: longhorn-storage

@@ -7,5 +7,5 @@ spec:
     - ReadWriteMany  # Allows multiple pods to access the volume
   resources:
     requests:
-      storage: 10Gi  # Size of the volume
-  storageClassName: longhorn-ssd  # Specify your storage class
+      storage: 1Gi  # Size of the volume
+  storageClassName: longhorn-storage  # Specify your storage class

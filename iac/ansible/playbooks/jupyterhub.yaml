@@ -1,0 +1,9 @@
+- name: "Deploy Frontend Components"
+  hosts: localhost
+  become_user: k8s_user
+  
+  tasks:
+    - name:
+      include_role:
+        name: frontend
+

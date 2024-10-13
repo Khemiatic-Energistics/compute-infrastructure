@@ -1,0 +1,9 @@
+# Play 2: Deploy Backend Components on Control Node
+- name: "Deploy Backend Components"
+  hosts: localhost
+  become: false
+
+  tasks:
+    - name: "Include backend role"
+      include_role:
+        name: backend

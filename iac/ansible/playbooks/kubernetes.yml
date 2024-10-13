@@ -19,9 +19,12 @@
         name: rke2-server
       when: type == "server"
 
-    - name: "Install rke2-agent"
+    - name: Install rke2-agent
       include_role:
         name: rke2-agent
+      vars:
+        node_token: "{{ hostvars['k8s00']['rke2_node_token'] }}"
+        rke2_server: "{{ hostvars['k8s00']['rke2_server'] }}"
       when: type == "agent"
 
 # Play 2: Deploy Backend Components on Control Node
@@ -33,14 +36,3 @@
     - name: "Include backend role"
       include_role:
         name: backend
-        
-# Play 3: Deploy Frontend Components
-
-- name: "Deploy Frontend Components"
-  hosts: localhost
-  become_user: k8s_user
-  
-  tasks:
-    - name:
-      include_role:
-        name: frontend

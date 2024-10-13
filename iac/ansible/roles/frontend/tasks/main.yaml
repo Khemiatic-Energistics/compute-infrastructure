@@ -16,7 +16,7 @@
     name: jupyterhub
     chart_ref: jupyterhub/jupyterhub
     namespace: jupyterhub
-    values_files: "/home/k8s_user/jupyter/values.yaml"
+    values_files: "/home/k8s_user/compute-infrastructure/rke2/jupyter/values.yaml"
 
 - name: Add airlfow charts repo
   community.kubernetes.helm_repository:
@@ -29,5 +29,40 @@
     name: airflow
     chart_ref: apache-airflow/airflow
     namespace: jupyterhub
-    values_files: "/home/hwcoepland/autodocker/rke2/jupter/values.yaml"
+    values_files: "/home/k8s_user/compute-infrastructure/rke2/jupyter/values.yaml"
+
+- name: Add Airflow DB PVC
+  community.kubernetes.k8s:
+    state: present
+    definition: "{{ lookup('file', '/home/k8s_user/compute-infrastructure/rke2/airflow/postgresql-pvc.yaml') }}"
+
+- name: Add Airflow Logs PVC
+  community.kubernetes.k8s:
+    state: present
+    definition: "{{ lookup('file', '/home/k8s_user/compute-infrastructure/rke2/airflow/pvc-logs.yaml') }}"
+    namespace: jupyterhub
+
+- name: Add Airflow DAG PVC
+  community.kubernetes.k8s:
+    state: present
+    definition: "{{ lookup('file', '/home/k8s_user/compute-infrastructure/rke2/airflow/pvc-dags.yaml') }}"
+    namespace: jupyterhub
+
+
+- name: Create PVC for Jupyterhub Database
+  kubernetes.core.k8s:
+    state: present
+    namespace: jupyterhub
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: jupyterhub-database
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources: 
+          requests:
+            storage: 1Gi
+        storageClassName: longhorn-storage
 

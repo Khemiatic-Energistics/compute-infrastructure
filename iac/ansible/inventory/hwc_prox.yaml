@@ -6,16 +6,17 @@ autodock:
         JUPYTER_CONFIG: ../../rke2/jupyter/values.yaml
         AIRFLOW_CONFIG: ../../rke2/airlfow/values.yaml
       hosts:
-        k8s1:
+        k8s00:
           #ansible_host: 192.168.1.105
           ansible_connection: local
           type: server
           ansible_user: "{{K8S_ANSIBLE_USER}}"
-        k8s2:
+          rke2_node_token: 'K105d9b5156d910c3b7c7e122803eab427c6699ca22973c911336c24d2522bed2b9::server:1e979178aa26ef4f379ce14fd7fd8007'
+        k8s01:
           ansible_host: 192.168.1.106
           type: agent
           ansible_user: "{{K8S_ANSIBLE_USER}}"
-        k8s3:
+        k8s02:
           ansible_host: 192.168.1.107
           type: agent
           ansible_user: "{{K8S_ANSIBLE_USER}}"

@@ -12,21 +12,17 @@
     kind: Namespace
     name: kube-system
 
-
-
 - name: Install Cert-Manager
   community.kubernetes.helm:
     name: cert-manager
     chart_ref: jetstack/cert-manager
     namespace: kube-system
 
-
 - name: Ensure MetalLB namespace exists
   community.kubernetes.k8s:
     state: present
     kind: Namespace
     name: metallb-system
-
 
 - name: Install MetalLB with configuration via Helm
   community.kubernetes.helm:
@@ -52,13 +48,11 @@
             ipAddressPools:
               - first-pool
 
-
 - name: Ensure Longhorn namespace exists
   community.kubernetes.k8s:
     state: present
     kind: Namespace
     name: longhorn-system
-
 
 - name: Install Longhorn
   community.kubernetes.helm:
@@ -66,3 +60,26 @@
     chart_ref: longhorn/longhorn
     namespace: longhorn-system
 
+- name: Ensure Longhorn storage directories exist
+  file:
+    path: /mnt/longhorn-storage
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create StorageClass for Longhorn
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: longhorn-storage
+      provisioner: driver.longhorn.io
+      parameters:
+        numberOfReplicas: "3"
+        staleReplicaTimeout: "30"
+      reclaimPolicy: Delete
+      allowVolumeExpansion: true
+      volumeBindingMode: Immediate
