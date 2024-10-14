@@ -1,15 +1,31 @@
 
-
+## Jupyterhub Deployment
+# Add chart
 - name: Add jupyter charts repo
   community.kubernetes.helm_repository:
     name: jupyterhub
     repo_url: https://hub.jupyter.org/helm-chart/
     repo_state: present
 
-- name: debug
-  shell:
-    cmd: whoami
+# Create PVCs
+- name: Create PVC for Jupyterhub Database
+  kubernetes.core.k8s:
+    state: present
+    namespace: jupyterhub
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: jupyterhub-database
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources: 
+          requests:
+            storage: 1Gi
+        storageClassName: longhorn-storage
 
+# Deploy
 - name: Jupyter
   become_user: k8s_user
   community.kubernetes.helm:
@@ -18,18 +34,7 @@
     namespace: jupyterhub
     values_files: "/home/k8s_user/compute-infrastructure/rke2/jupyter/values.yaml"
 
-- name: Add airlfow charts repo
-  community.kubernetes.helm_repository:
-    name: apache-airflow
-    repo_url: https://airflow.apache.org
-    repo_state: present
-
-- name: Airflow
-  community.kubernetes.helm:
-    name: airflow
-    chart_ref: apache-airflow/airflow
-    namespace: jupyterhub
-    values_files: "/home/k8s_user/compute-infrastructure/rke2/jupyter/values.yaml"
+## Airflow Deployment
 
 - name: Add Airflow DB PVC
   community.kubernetes.k8s:
@@ -48,21 +53,20 @@
     definition: "{{ lookup('file', '/home/k8s_user/compute-infrastructure/rke2/airflow/pvc-dags.yaml') }}"
     namespace: jupyterhub
 
+## 
 
-- name: Create PVC for Jupyterhub Database
-  kubernetes.core.k8s:
-    state: present
+- name: Add airlfow charts repo
+  community.kubernetes.helm_repository:
+    name: apache-airflow
+    repo_url: https://airflow.apache.org
+    repo_state: present
+
+- name: Airflow Deploy
+  community.kubernetes.helm:
+    name: airflow
+    chart_ref: apache-airflow/airflow
     namespace: jupyterhub
-    definition:
-      apiVersion: v1
-      kind: PersistentVolumeClaim
-      metadata:
-        name: jupyterhub-database
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources: 
-          requests:
-            storage: 1Gi
-        storageClassName: longhorn-storage
+    values_files: "/home/k8s_user/compute-infrastructure/rke2/jupyter/values.yaml"
+
+
 
