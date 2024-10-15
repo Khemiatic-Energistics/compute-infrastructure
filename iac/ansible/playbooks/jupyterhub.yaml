@@ -1,9 +1,12 @@
 - name: "Deploy Frontend Components"
   hosts: localhost
   become_user: k8s_user
+  vars_files:
+    - /home/k8s_user/compute-infrastructure/iac/ansible/roles/frontend/vars/vault.yaml  # Load the vault file at the playbook level
   
   tasks:
-    - name:
+    - name: "Include Frontend Role"
       include_role:
         name: frontend
+
 

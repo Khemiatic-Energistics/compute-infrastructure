@@ -1,4 +1,15 @@
 hub:
+  config:
+    JupyterHub:
+      authenticator_class: github
+    GitHubOAuthenticator:
+      client_id: "{{ github_client_id }}"
+      client_secret: "{{ github_client_secret }}"
+      oauth_callback_url: https://jupyter.hwcopeland.net/hub/oauth_callback
+      allowed_organizations:
+        - Khemiatic-Energistics
+      scope:
+        - read:org
   db:
     type: postgres  # Use 'postgres' for PostgreSQL
     pvc:
@@ -9,7 +20,7 @@ singleuser:
   storage:
     dynamic:
       pvcNameTemplate: claim-{username}{servername}
-      storageClass: "cloudflare-r2-jupyter"  # Using Longhorn for dynamic user storage
+      storageClass: "longhorn-storage"  # Using Longhorn for dynamic user storage
       storageAccessModes: ["ReadWriteMany"]
     capacity: 2Gi  # Default capacity per user PVC
   extraEnv:

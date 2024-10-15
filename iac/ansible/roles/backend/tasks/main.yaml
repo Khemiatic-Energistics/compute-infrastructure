@@ -1,5 +1,4 @@
 ## Validate Helm install
-
 - name: Check if Helm command is installed locally
   ansible.builtin.shell: hash helm
   delegate_to: 127.0.0.1
@@ -52,7 +51,6 @@
             ipAddressPools:
               - first-pool
 
-
 ## Longhorn Deployment
 - name: Ensure Longhorn namespace exists
   community.kubernetes.k8s:
@@ -90,54 +88,55 @@
       allowVolumeExpansion: true
       volumeBindingMode: Immediate
 
-## S3-CSI Deployment
+# ## S3-CSI Deployment
 
-# Load the Vault variables
-- name: Include R2 credentials
-  include_vars: r2-credentials.yml
+# # Step 1: Load the Vault variables for Cloudflare R2 credentials
+# - name: Include R2 credentials
+#   include_vars: r2-credentials.yml
 
-# Create Cloudflare R2 credentials secret
-- name: Create Cloudflare R2 credentials secret
-  community.kubernetes.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: r2-credentials
-        namespace: kube-system
-      type: Opaque
-      stringData:
-        accessKey: "{{ r2_access_key }}"
-        secretKey: "{{ r2_secret_key }}"
+# # Step 2: Create Kubernetes Secret for Cloudflare R2 credentials
+# - name: Create Cloudflare R2 credentials Secret
+#   kubernetes.core.k8s:
+#     state: present
+#     definition:
+#       apiVersion: v1
+#       kind: Secret
+#       metadata:
+#         name: cloudflare-r2-credentials
+#         namespace: kube-system
+#       type: Opaque
+#       stringData:  # Use stringData for cleartext values (they get base64-encoded automatically)
+#         accessKeyID: "{{ r2_access_key }}"
+#         secretAccessKey: "{{ r2_secret_key }}"
 
-- name: Add JuiceFS CSI Driver Helm repository
-  ansible.builtin.command:
-    cmd: "helm repo add juicefs https://juicedata.github.io/juicefs-csi-driver/"
-  register: helm_repo_add
-  changed_when: "'repository' in helm_repo_add.stdout or 'successfully' in helm_repo_add.stdout"
+# # Step 3: Apply the CSI-S3 driver manifests from GitHub
+# - name: Apply CSI-S3 driver
+#   ansible.builtin.command:
+#     cmd: "kubectl apply -f https://raw.githubusercontent.com/ctrox/csi-s3/master/deploy/kubernetes/csi-s3.yaml"
+#   register: kubectl_apply
+#   changed_when: "'configured' in kubectl_apply.stdout or 'created' in kubectl_apply.stdout"
 
-- name: Install JuiceFS CSI Driver via Helm
-  community.kubernetes.helm:
-    name: juicefs-csi-driver
-    chart_ref: juicefs/juicefs-csi-driver
-    namespace: kube-system
-    release_name: juicefs-csi-driver
+# # Step 4: Create StorageClass for Cloudflare R2 with Secret credentials
+# - name: Create StorageClass for Cloudflare R2
+#   kubernetes.core.k8s:
+#     state: present
+#     definition:
+#       apiVersion: storage.k8s.io/v1
+#       kind: StorageClass
+#       metadata:
+#         name: cloudflare-r2-jupyter
+#       provisioner: ch.ctrox.csi.s3-driver  # Correct provisioner for CSI-S3
+#       parameters:
+#         bucket: "jupyternotebooks"  # Specify your bucket
+#         region: "us-east-1"  # Set to your Cloudflare R2 region
+#         endpoint: "https://d39a438e19ba2840e1ddb32ad09181ed.r2.cloudflarestorage.com"  # Cloudflare R2 endpoint
+#         sigVersion: "s3v4"  # S3 signature version 4 (used by Cloudflare R2)
+#         storageClass: "STANDARD"  # S3 storage class
+#         # Reference the access keys in the Kubernetes secret
+#         accessKeySecretName: "cloudflare-r2-credentials"
+#         accessKeySecretNamespace: "kube-system"
+#         secretKeySecretName: "cloudflare-r2-credentials"
+#         secretKeySecretNamespace: "kube-system"
+#       reclaimPolicy: Retain
+#       allowVolumeExpansion: true
 
-- name: Create StorageClass for Cloudflare R2
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: storage.k8s.io/v1
-      kind: StorageClass
-      metadata:
-        name: cloudflare-r2-jupyter
-      provisioner: s3.csi.aws.com  # Ensure you're using the correct S3-CSI driver
-      parameters:
-        bucket: "jupyternotebooks"
-        endpoint: "https://d39a438e19ba2840e1ddb32ad09181ed.r2.cloudflarestorage.com"
-        sigVersion: "s3v4"  # S3 signature version 4 (used by Cloudflare R2)
-      secretName: "r2-credentials"
-      secretNamespace: "kube-system"
-      reclaimPolicy: Retain
-      allowVolumeExpansion: true

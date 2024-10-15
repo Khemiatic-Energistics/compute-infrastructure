@@ -1,7 +1,9 @@
 # Play 2: Deploy Backend Components on Control Node
 - name: "Deploy Backend Components"
   hosts: localhost
-  become: false
+  become_user: k8s_user
+  vars_files:
+    - /home/k8s_user/compute-infrastructure/iac/ansible/roles/backend/vars/r2-credentials.yml  # Load the vault file at the playbook level
 
   tasks:
     - name: "Include backend role"

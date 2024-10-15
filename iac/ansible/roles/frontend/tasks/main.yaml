@@ -25,14 +25,24 @@
             storage: 1Gi
         storageClassName: longhorn-storage
 
-# Deploy
-- name: Jupyter
-  become_user: k8s_user
+# Add secrets for Oauth
+
+- name: Replace GitHub client ID and secret in values.yaml
+  replace:
+    path: "/home/k8s_user/compute-infrastructure/rke2/jupyter/values.yaml"
+    regexp: "{{ item.regex }}"
+    replace: "{{ item.replace }}"
+  with_items:
+    - { regex: 'client_id: ".*"', replace: 'client_id: "{{ github_client_id }}"' }
+    - { regex: 'client_secret: ".*"', replace: 'client_secret: "{{ github_client_secret }}"' }
+
+- name: Deploy JupyterHub using Helm
   community.kubernetes.helm:
     name: jupyterhub
     chart_ref: jupyterhub/jupyterhub
     namespace: jupyterhub
     values_files: "/home/k8s_user/compute-infrastructure/rke2/jupyter/values.yaml"
+
 
 ## Airflow Deployment
 
