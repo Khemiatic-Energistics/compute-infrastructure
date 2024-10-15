@@ -9,7 +9,7 @@ singleuser:
   storage:
     dynamic:
       pvcNameTemplate: claim-{username}{servername}
-      storageClass: "longhorn-storage"  # Using Longhorn for dynamic user storage
+      storageClass: "cloudflare-r2-jupyter"  # Using Longhorn for dynamic user storage
       storageAccessModes: ["ReadWriteMany"]
     capacity: 2Gi  # Default capacity per user PVC
   extraEnv:
