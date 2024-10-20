@@ -108,7 +108,7 @@ def main():
     pdb_id = args.protein_id.lower()
     ligand_id = args.ligand_id
     receptor_pdb = f"{pdb_id}.pdb"
-    receptor_pdb_clean = f"{pdb_id}_clean.pdb"
+    receptor_pdb_clean = f"{pdb_id}.pdb"
 
     # Step 1: Download the protein PDB file
     download_protein(pdb_id)
