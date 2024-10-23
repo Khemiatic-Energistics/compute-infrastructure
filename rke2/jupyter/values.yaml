@@ -3,6 +3,7 @@ hub:
     JupyterHub:
       authenticator_class: github
     GitHubOAuthenticator:
+## Need to make template for id / secret so it doesnt copy pasta
       client_id: "{{ github_client_id }}"
       client_secret: "{{ github_client_secret }}"
       oauth_callback_url: https://jupyter.hwcopeland.net/hub/oauth_callback
@@ -17,6 +18,11 @@ hub:
       accessModes:
         - ReadWriteOnce
 singleuser:
+## Need to make new image
+  image:
+    name: hwcopeland/jupyter-chem
+    tag: latest
+  cmd: null
   storage:
     dynamic:
       pvcNameTemplate: claim-{username}{servername}

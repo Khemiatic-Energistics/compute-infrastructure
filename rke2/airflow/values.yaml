@@ -1,22 +1,22 @@
 dags:
   persistence:
-    enabled: true  # Enable DAG persistence
-    existingClaim: pvc-dags  # Reference an existing Persistent Volume Claim
-    size: 10Gi  # Adjust the PVC size based on your needs
-    accessMode: ReadWriteMany  # Ensure the access mode allows multiple pods to read/write
+    enabled: true
+    existingClaim: pvc-dags
+    size: 10Gi
+    accessMode: ReadWriteMany
 
   gitSync:
-    enabled: true  # Enable Git-Sync for syncing DAGs
-    repo: "https://github.com/hwcopeland/airflow-dags"  # Public Git repository
-    branch: "main"  # Branch to sync
-    rev: "HEAD"  # Use HEAD for the latest commit
-    wait: 300  # Sync interval (every 300 seconds)
+    enabled: true
+    repo: "https://github.com/hwcopeland/airflow-dags"
+    branch: "main"
+    rev: "HEAD"
+    wait: 60
     subPath: ""
 
 logs:
   persistence:
-    enabled: true  # Enable persistence for logs
-    existingClaim: pvc-logs  # Reference an existing Persistent Volume Claim for logs
+    enabled: true
+    existingClaim: pvc-logs
 
 scheduler:
   waitForMigrations:
@@ -28,16 +28,18 @@ webserver:
   waitForMigrations:
     enabled: False
   service:
-    type: LoadBalancer  # Expose the webserver externally
+    type: LoadBalancer
     ports:
       - protocol: TCP
         port: 8080
         targetPort: 8080
 
 workers:
-  replicas: 16
   waitForMigrations:
     enabled: False
+  replicas: 4
+  persistence:  # Corrected this line
+    size: 10Gi  # Updated the size here
 
 triggerer:
   waitForMigrations:
@@ -48,5 +50,5 @@ airflow:
     AIRFLOW_CORE_DAGS_FOLDER: /opt/airflow/dags/repo
 
 postgresql:
-    postgresqlExtendedConf:
+  postgresqlExtendedConf:
       max_connections: 200

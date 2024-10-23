@@ -2,3 +2,5 @@ service:
   ui:
     type: LoadBalancer
     externalTrafficPolicy: Cluster
+defaultSettings:
+  defaultClass: false  # Disable longhorn as the default storage class

@@ -20,7 +20,7 @@
       spec:
         accessModes:
           - ReadWriteOnce
-        resources: 
+        resources:
           requests:
             storage: 1Gi
         storageClassName: longhorn-storage
@@ -63,6 +63,12 @@
     definition: "{{ lookup('file', '/home/k8s_user/compute-infrastructure/rke2/airflow/pvc-dags.yaml') }}"
     namespace: jupyterhub
 
+- name: Add Airflow Worker PVC
+  community.kubernetes.k8s:
+    state: present
+    definition: "{{ lookup('file', '/home/k8s_user/compute-infrastructure/rke2/airflow/wrkflw-pvcs/autodock4-pvc.yaml') }}"
+    namespace: jupyterhub
+
 ## 
 
 - name: Add airlfow charts repo
@@ -76,7 +82,7 @@
     name: airflow
     chart_ref: apache-airflow/airflow
     namespace: jupyterhub
-    values_files: "/home/k8s_user/compute-infrastructure/rke2/jupyter/values.yaml"
+    values_files: "/home/k8s_user/compute-infrastructure/rke2/airflow/values.yaml"
 
 
 

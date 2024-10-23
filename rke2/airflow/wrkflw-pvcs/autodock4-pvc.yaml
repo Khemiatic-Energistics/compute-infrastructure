@@ -3,9 +3,9 @@ kind: PersistentVolumeClaim
 metadata:
   name: pvc-autodock
 spec:
-  storageClassName: manual
+  storageClassName: longhorn-storage
   accessModes:
     - ReadWriteMany
   resources:
     requests:
-      storage: 2Gi
+      storage: 20Gi
