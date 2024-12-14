@@ -11,6 +11,27 @@ A workflow for molecular docking using AutoDock4. The workflow is implemented as
 
 ## Quickstart
 
+install ansible
+
+install community.kubernetes from ansible galaxy
+
+install helm
+
+apt install pip
+
+pip install kubernetes
+
+add jetstack repo
+
+add metallb repo
+
+add longhorn repo
+
+mkdir for longhorn mnt
+
+copy kube config
+export PATH=/var/lib/rancher/rke2/bin:$PATH
+
 ### Folders
 The main DAG is contained in `autodock.py`, we also provide with the following folders:
 - `docker/` contains docker builds for images. each includes a `Dockerfile`, along with bash scripts which are included in the image;
@@ -18,6 +39,8 @@ The main DAG is contained in `autodock.py`, we also provide with the following f
 - `rke2/` contains folders for each deployment with associated values and configurations 
 
 ### Usage
+
+## Notes
 
 
 ## Setup & Installation
