@@ -32,6 +32,9 @@ mkdir for longhorn mnt
 copy kube config
 export PATH=/var/lib/rancher/rke2/bin:$PATH
 
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.crds.yaml
+
+
 ### Folders
 The main DAG is contained in `autodock.py`, we also provide with the following folders:
 - `docker/` contains docker builds for images. each includes a `Dockerfile`, along with bash scripts which are included in the image;
