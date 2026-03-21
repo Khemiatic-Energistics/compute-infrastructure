@@ -14,12 +14,15 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "create", "delete", "watch", "update", "patch"]
+  - apiGroups: ["docking.k8s.io"]
+    resources: ["dockingjobs", "dockingjobs/status"]
+    verbs: ["get", "list", "watch", "update", "patch"]
   - apiGroups: [""]
-    resources: ["pods", "pods/log", "configmaps", "secrets"]
+    resources: ["pods", "pods/log", "configmaps"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["services"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

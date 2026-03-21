@@ -78,7 +78,8 @@ spec:
                 completionTime:
                   format: date-time
                   type: string
-      additionalPrinterColumns:
+      subresources:
+        status: {}
         - name: Phase
           type: string
           JSONPath: .status.phase

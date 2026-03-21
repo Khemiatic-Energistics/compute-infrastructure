@@ -4,11 +4,11 @@ FROM golang:1.21-alpine AS builder
 WORKDIR /app
 
 # Copy go mod files
-COPY controller/go.mod controller/go.sum ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source code
-COPY controller/ .
+COPY . .
 
 # Build the controller
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o controller .

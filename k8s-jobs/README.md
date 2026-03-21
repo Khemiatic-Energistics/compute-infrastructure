@@ -39,7 +39,7 @@ The controller exposes a REST API on port 8080:
 | POST | /api/v1/dockingjobs | Create a new docking job |
 | GET | /api/v1/dockingjobs?name={name} | Get job status |
 | DELETE | /api/v1/dockingjobs?name={name} | Delete a docking job |
-| GET | /api/v1/dockingjobs/{name}/logs | Get job logs |
+| GET | /api/v1/dockingjobs/logs?name={name}&task={task} | Get job logs |
 
 ### Example: Create a New Docking Job
 
@@ -66,10 +66,10 @@ curl http://docking-controller:80/api/v1/dockingjobs?name=docking-1234567890
 
 ```bash
 # Get logs for a specific task type
-curl "http://docking-controller:80/api/v1/dockingjobs/docking-123/logs?task=prepare-receptor"
+curl "http://docking-controller:80/api/v1/dockingjobs/logs?name=docking-1234567890&task=prepare-receptor"
 
 # Get all logs for a workflow
-curl "http://docking-controller:80/api/v1/dockingjobs/docking-123/logs"
+curl "http://docking-controller:80/api/v1/dockingjobs/logs?name=docking-1234567890"
 ```
 
 ## Workflow Steps
@@ -101,7 +101,7 @@ kubectl apply -f config/deployment.yaml
 ### 3. Build and Deploy the Controller
 
 ```bash
-cd controller
+cd k8s-jobs/controller
 docker build -t docking-controller:latest .
 kubectl apply -f ../config/deployment.yaml
 ```
@@ -184,6 +184,6 @@ The controller supports the following environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | NAMESPACE | default | Kubernetes namespace to operate in |
-| KUBECONFIG | /etc/kubernetes/admin.conf | Path to kubeconfig |
+| KUBECONFIG | (unset) | Path to kubeconfig; if unset, in-cluster config is used |
 | API_PORT | 8080 | HTTP port for API server |
 | RECONCILE_INTERVAL | 5s | Interval between reconciliation loops |

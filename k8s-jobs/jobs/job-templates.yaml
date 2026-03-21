@@ -25,14 +25,19 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              cp {{ .MountPath }}/{{ .UserPvc }}/{{ .LigandDb }}.sdf {{ .MountPath }}/{{ .LigandDb }}.sdf
+              cp /user-data/{{ .LigandDb }}.sdf {{ .MountPath }}/{{ .LigandDb }}.sdf
           volumeMounts:
             - name: autodock-pvc
               mountPath: {{ .MountPath }}
+            - name: user-pvc
+              mountPath: /user-data
       volumes:
         - name: autodock-pvc
           persistentVolumeClaim:
             claimName: {{ .AutodockPvc }}
+        - name: user-pvc
+          persistentVolumeClaim:
+            claimName: {{ .UserPvc }}
 
 ---
 # Job 2: Prepare Receptor
@@ -60,7 +65,7 @@ spec:
           command: ["python3", "/autodock/scripts/proteinprepv2.py"]
           args:
             - "--protein_id"
-            - {{ .PdbId }}
+            - {{ .PDBID }}
             - "--ligand_id"
             - {{ .NativeLigand }}
           volumeMounts:
@@ -179,7 +184,7 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              /autodock/scripts/dockingv2.sh {{ .PdbId }} {{ .BatchLabel }}
+              /autodock/scripts/dockingv2.sh {{ .PDBID }} {{ .BatchLabel }}
           volumeMounts:
             - name: autodock-pvc
               mountPath: {{ .MountPath }}
@@ -213,7 +218,7 @@ spec:
           workingDir: {{ .MountPath }}
           command: ["/autodock/scripts/3_post_processing.sh"]
           args:
-            - {{ .PdbId }}
+            - {{ .PDBID }}
             - {{ .LigandDb }}
           volumeMounts:
             - name: autodock-pvc
