@@ -3,7 +3,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: copy-ligand-db
+  name: "{{ .WorkflowName }}-copy-ligand-db"
   labels:
     docking.k8s.io/job-type: copy-ligand-db
     docking.k8s.io/workflow: "{{ .WorkflowName }}"
@@ -21,11 +21,16 @@ spec:
           image: alpine:latest
           command: ["/bin/sh", "-c"]
           args:
-            - cp {{ .MountPath }}/{{ .UserPvcPath }}/{{ .LigandDb }}.sdf {{ .MountPath }}/{{ .LigandDb }}.sdf
+            - cp /user-data/{{ .LigandDb }}.sdf {{ .MountPath }}/{{ .LigandDb }}.sdf
           volumeMounts:
             - name: autodock-pvc
               mountPath: {{ .MountPath }}
+            - name: user-pvc
+              mountPath: /user-data
       volumes:
         - name: autodock-pvc
           persistentVolumeClaim:
             claimName: {{ .AutodockPvc }}
+        - name: user-pvc
+          persistentVolumeClaim:
+            claimName: {{ .UserPvc }}
