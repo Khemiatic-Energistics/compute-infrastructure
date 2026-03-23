@@ -1,2 +1,0 @@
-JUPYTER_CONFIG: '../../rke2/jupyter/values.yaml'
-AIRFLOW_CONFIG: '../../rke2/airlfow/values.yaml'

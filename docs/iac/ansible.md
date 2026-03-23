@@ -1,5 +1,24 @@
 # Auto Dock Ansible
 
+> **NOTICE: Ansible playbooks removed from this repository**
+>
+> The `iac/ansible/` directory has been removed from `compute-infrastructure` as part of
+> the GitOps migration (see `docs/tdd/flux-gitops.md` Phase 4). Bare-metal RKE2
+> provisioning is now handled separately via the `hwcopeland/iac` repository
+> (github.com/hwcopeland/iac).
+>
+> The playbooks can be recovered from git history if needed:
+> `git log -- iac/ansible/` and `git show <commit>:iac/ansible/<path>`
+>
+> **Security note:** The file `iac/ansible/inventory/hwc_prox.yaml` contained a
+> committed RKE2 join token (`rke2_node_token`). Deleting the directory from the
+> working tree does not remove it from git history. A `git filter-repo` history
+> rewrite is required for full security remediation. This is flagged in the TDD
+> (`docs/tdd/flux-gitops.md` §8.2 open question 4) as an operator decision.
+>
+> The content below is preserved as historical reference.
+
+---
 
 ## Overview
 

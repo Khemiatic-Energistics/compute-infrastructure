@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,49 +11,37 @@ import (
 	"syscall"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	typed "k8s.io/client-go/kubernetes/typed/batch/v1"
 	rest "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-
-	dockingv1 "docking.k8s.io/v1"
 )
 
 const (
-	// Default values
-	DefaultImage             = "hwcopeland/auto-docker:latest"
-	DefaultAutodockPvc       = "pvc-autodock"
-	DefaultUserPvcPrefix     = "claim-"
-	DefaultMountPath         = "/data"
-	DefaultLigandsChunkSize  = 10000
-	DefaultPDBID             = "7jrn"
-	DefaultLigandDb          = "ChEBI_complete"
-	DefaultJupyterUser       = "jovyan"
-	DefaultNativeLigand      = "TTT"
+	DefaultImage            = "hwcopeland/auto-docker:latest"
+	DefaultAutodockPvc      = "pvc-autodock"
+	DefaultUserPvcPrefix    = "claim-"
+	DefaultMountPath        = "/data"
+	DefaultLigandsChunkSize = 10000
+	DefaultPDBID            = "7jrn"
+	DefaultLigandDb         = "ChEBI_complete"
+	DefaultJupyterUser      = "jovyan"
+	DefaultNativeLigand     = "TTT"
 
-	// Finalizer
-	DockingJobFinalizer = "docking.k8s.io/finalizer"
+	DockingJobFinalizer = "docking.khemia.io/finalizer"
+
 )
 
 // DockingJobController handles the lifecycle of DockingJob resources
 type DockingJobController struct {
-	client        *kubernetes.Clientset
-	namespace     string
-	jobClient     typed.JobInterface
-	dockingClient *DockingJobClient
-	stopCh        chan struct{}
-}
-
-// DockingJobClient handles CRUD operations for DockingJob resources
-type DockingJobClient struct {
-	restClient *rest.RESTClient
-	scheme     *runtime.Scheme
+	client    *kubernetes.Clientset
+	namespace string
+	jobClient typed.JobInterface
+	stopCh    chan struct{}
 }
 
 // DockingJob represents the custom resource
@@ -78,12 +65,18 @@ type DockingJobSpec struct {
 }
 
 type DockingJobStatus struct {
-	Phase             string     `json:"phase,omitempty"`
-	BatchCount        int        `json:"batchCount,omitempty"`
-	CompletedBatches  int        `json:"completedBatches,omitempty"`
-	Message           string     `json:"message,omitempty"`
-	StartTime         *time.Time `json:"startTime,omitempty"`
-	CompletionTime    *time.Time `json:"completionTime,omitempty"`
+	Phase            string     `json:"phase,omitempty"`
+	BatchCount       int        `json:"batchCount,omitempty"`
+	CompletedBatches int        `json:"completedBatches,omitempty"`
+	Message          string     `json:"message,omitempty"`
+	StartTime        *time.Time `json:"startTime,omitempty"`
+	CompletionTime   *time.Time `json:"completionTime,omitempty"`
+}
+
+type DockingJobList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []DockingJob `json:"items"`
 }
 
 // NewDockingJobController creates a new controller
@@ -100,7 +93,7 @@ func NewDockingJobController() (*DockingJobController, error) {
 
 	namespace := os.Getenv("NAMESPACE")
 	if namespace == "" {
-		namespace = "default"
+		namespace = "chem"
 	}
 
 	return &DockingJobController{
@@ -123,14 +116,12 @@ func getConfig() (*rest.Config, error) {
 func (c *DockingJobController) Run(ctx context.Context) error {
 	log.Println("Starting Docking Job Controller...")
 
-	// Start the API server
 	go func() {
-		if err := c.startAPIServer(); err != nil {
+		if err := c.startAPIServer(); err != nil && err != http.ErrServerClosed {
 			log.Printf("API server error: %v", err)
 		}
 	}()
 
-	// Watch for DockingJob changes (simplified - in production use informers)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -147,131 +138,61 @@ func (c *DockingJobController) Run(ctx context.Context) error {
 }
 
 func (c *DockingJobController) startAPIServer() error {
-	http.HandleFunc("/api/v1/dockingjobs", c.handleDockingJobs)
-	http.HandleFunc("/api/v1/dockingjobs/", c.handleDockingJob)
-	
-	// Health check endpoint
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	handler := NewAPIHandler(c.client, c.namespace, c)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/dockingjobs", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handler.ListJobs(w, r)
+		case http.MethodPost:
+			handler.CreateJob(w, r)
+		default:
+			writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
+	mux.HandleFunc("/api/v1/dockingjobs/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if hasLogsSuffix(r.URL.Path) {
+				handler.GetLogs(w, r)
+			} else {
+				handler.GetJob(w, r)
+			}
+		case http.MethodDelete:
+			handler.DeleteJob(w, r)
+		default:
+			writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/health", handler.HealthCheck)
+	mux.HandleFunc("/readyz", handler.ReadinessCheck)
 
 	log.Println("API server listening on :8080")
-	return http.ListenAndServe(":8080", nil)
+	return http.ListenAndServe(":8080", mux)
 }
 
-func (c *DockingJobController) handleDockingJobs(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		c.listDockingJobs(w, r)
-	case http.MethodPost:
-		c.createDockingJob(w, r)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func (c *DockingJobController) handleDockingJob(w http.ResponseWriter, r *http.Request) {
-	// Extract job name from URL path
-	// In production, use proper routing
-	
-	switch r.Method {
-	case http.MethodGet:
-		c.getDockingJob(w, r)
-	case http.MethodDelete:
-		c.deleteDockingJob(w, r)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func (c *DockingJobController) listDockingJobs(w http.ResponseWriter, r *http.Request) {
-	// For now, return empty list - in production, query from K8s
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(DockingJobList{})
-}
-
-func (c *DockingJobController) createDockingJob(w http.ResponseWriter, r *http.Request) {
-	var job DockingJob
-	if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Set defaults
-	if job.Spec.Image == "" {
-		job.Spec.Image = DefaultImage
-	}
-	if job.Spec.AutodockPvc == "" {
-		job.Spec.AutodockPvc = DefaultAutodockPvc
-	}
-	if job.Spec.UserPvcPrefix == "" {
-		job.Spec.UserPvcPrefix = DefaultUserPvcPrefix
-	}
-	if job.Spec.MountPath == "" {
-		job.Spec.MountPath = DefaultMountPath
-	}
-	if job.Spec.PDBID == "" {
-		job.Spec.PDBID = DefaultPDBID
-	}
-	if job.Spec.LigandDb == "" {
-		job.Spec.LigandDb = DefaultLigandDb
-	}
-	if job.Spec.JupyterUser == "" {
-		job.Spec.JupyterUser = DefaultJupyterUser
-	}
-	if job.Spec.NativeLigand == "" {
-		job.Spec.NativeLigand = DefaultNativeLigand
-	}
-	if job.Spec.LigandsChunkSize == 0 {
-		job.Spec.LigandsChunkSize = DefaultLigandsChunkSize
-	}
-
-	// Generate name if not provided
-	if job.Name == "" {
-		job.Name = fmt.Sprintf("docking-%d", time.Now().Unix())
-	}
-
-	job.Status.Phase = "Pending"
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(job)
-	
-	// Start job processing in background
-	go c.processDockingJob(job)
-}
-
-func (c *DockingJobController) getDockingJob(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(DockingJob{})
-}
-
-func (c *DockingJobController) deleteDockingJob(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
+func hasLogsSuffix(path string) bool {
+	return len(path) > 6 && path[len(path)-5:] == "/logs"
 }
 
 func (c *DockingJobController) processDockingJob(job DockingJob) {
 	log.Printf("Processing docking job: %s", job.Name)
 
-	// Update status to Running
 	now := time.Now()
 	job.Status.Phase = "Running"
 	job.Status.StartTime = &now
 
-	// Step 1: Copy ligand DB
 	if err := c.createCopyLigandDbJob(job); err != nil {
 		c.failJob(job, fmt.Sprintf("copy ligand DB failed: %v", err))
 		return
 	}
 
-	// Step 2: Prepare receptor
 	if err := c.createPrepareReceptorJob(job); err != nil {
 		c.failJob(job, fmt.Sprintf("prepare receptor failed: %v", err))
 		return
 	}
 
-	// Step 3: Split SDF
 	batchCount, err := c.createSplitSdfJob(job)
 	if err != nil {
 		c.failJob(job, fmt.Sprintf("split SDF failed: %v", err))
@@ -280,17 +201,14 @@ func (c *DockingJobController) processDockingJob(job DockingJob) {
 
 	job.Status.BatchCount = batchCount
 
-	// Step 4: Process batches (parallel docking jobs)
 	for i := 0; i < batchCount; i++ {
 		batchLabel := fmt.Sprintf("%s_batch%d", job.Spec.LigandDb, i)
-		
-		// Create prepare ligands job
+
 		if err := c.createPrepareLigandsJob(job, batchLabel); err != nil {
 			c.failJob(job, fmt.Sprintf("prepare ligands batch %d failed: %v", i, err))
 			return
 		}
 
-		// Create docking job
 		if err := c.createDockingJobExecution(job, batchLabel); err != nil {
 			c.failJob(job, fmt.Sprintf("docking batch %d failed: %v", i, err))
 			return
@@ -299,18 +217,16 @@ func (c *DockingJobController) processDockingJob(job DockingJob) {
 		job.Status.CompletedBatches = i + 1
 	}
 
-	// Step 5: Postprocessing
 	if err := c.createPostProcessingJob(job); err != nil {
 		c.failJob(job, fmt.Sprintf("postprocessing failed: %v", err))
 		return
 	}
 
-	// Mark as completed
 	completionTime := time.Now()
 	job.Status.Phase = "Completed"
 	job.Status.CompletionTime = &completionTime
 	job.Status.Message = "All steps completed successfully"
-	
+
 	log.Printf("Docking job %s completed successfully", job.Name)
 }
 
@@ -322,22 +238,22 @@ func (c *DockingJobController) failJob(job DockingJob, message string) {
 
 func (c *DockingJobController) createCopyLigandDbJob(job DockingJob) error {
 	userPvcPath := fmt.Sprintf("%s%s", job.Spec.UserPvcPrefix, job.Spec.JupyterUser)
-	
-	jobSpec := &Job{
+
+	j := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-copy-ligand", job.Name),
 			Labels: map[string]string{
-				"docking.k8s.io/workflow":  job.Name,
-				"docking.k8s.io/job-type":   "copy-ligand-db",
-				"docking.k8s.io/parent-job": job.Name,
+				"docking.khemia.io/workflow":   job.Name,
+				"docking.khemia.io/job-type":   "copy-ligand-db",
+				"docking.khemia.io/parent-job": job.Name,
 			},
 		},
-		Spec: JobSpec{
-			TTLSecondsAfterFinished: ptr.Int32(300),
-			Template: PodTemplateSpec{
-				Spec: PodSpec{
-					RestartPolicy: "OnFailure",
-					Containers: []Container{
+		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: ptrInt32(300),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Containers: []corev1.Container{
 						{
 							Name:  "copy",
 							Image: "alpine:latest",
@@ -347,177 +263,129 @@ func (c *DockingJobController) createCopyLigandDbJob(job DockingJob) error {
 									job.Spec.MountPath, userPvcPath, job.Spec.LigandDb,
 									job.Spec.MountPath, job.Spec.LigandDb),
 							},
-							VolumeMounts: []VolumeMount{
-								{
-									Name:      "autodock-pvc",
-									MountPath: job.Spec.MountPath,
-								},
-							},
+							VolumeMounts: []corev1.VolumeMount{pvcMount("autodock-pvc", job.Spec.MountPath)},
 						},
 					},
-					Volumes: []Volume{
-						{
-							Name: "autodock-pvc",
-							VolumeSource: VolumeSource{
-								PersistentVolumeClaim: &PersistentVolumeClaimVolumeSource{
-									ClaimName: job.Spec.AutodockPvc,
-								},
-							},
-						},
-					},
+					Volumes: []corev1.Volume{pvcVolume("autodock-pvc", job.Spec.AutodockPvc)},
 				},
 			},
 		},
 	}
 
-	_, err := c.jobClient.Create(context.TODO(), jobSpec, metav1.CreateOptions{})
+	_, err := c.jobClient.Create(context.TODO(), j, metav1.CreateOptions{})
 	return err
 }
 
 func (c *DockingJobController) createPrepareReceptorJob(job DockingJob) error {
-	jobSpec := &Job{
+	j := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-prepare-receptor", job.Name),
 			Labels: map[string]string{
-				"docking.k8s.io/workflow":  job.Name,
-				"docking.k8s.io/job-type":   "prepare-receptor",
-				"docking.k8s.io/parent-job": job.Name,
+				"docking.khemia.io/workflow":   job.Name,
+				"docking.khemia.io/job-type":   "prepare-receptor",
+				"docking.khemia.io/parent-job": job.Name,
 			},
 		},
-		Spec: JobSpec{
-			TTLSecondsAfterFinished: ptr.Int32(300),
-			Template: PodTemplateSpec{
-				Spec: PodSpec{
-					RestartPolicy: "OnFailure",
-					Containers: []Container{
+		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: ptrInt32(300),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Containers: []corev1.Container{
 						{
 							Name:            "prepare",
 							Image:           job.Spec.Image,
-							ImagePullPolicy: "Always",
+							ImagePullPolicy: corev1.PullAlways,
 							WorkingDir:      job.Spec.MountPath,
 							Command:         []string{"python3", "/autodock/scripts/proteinprepv2.py"},
 							Args: []string{
 								"--protein_id", job.Spec.PDBID,
 								"--ligand_id", job.Spec.NativeLigand,
 							},
-							VolumeMounts: []VolumeMount{
-								{
-									Name:      "autodock-pvc",
-									MountPath: job.Spec.MountPath,
-								},
-							},
+							VolumeMounts: []corev1.VolumeMount{pvcMount("autodock-pvc", job.Spec.MountPath)},
 						},
 					},
-					Volumes: []Volume{
-						{
-							Name: "autodock-pvc",
-							VolumeSource: VolumeSource{
-								PersistentVolumeClaim: &PersistentVolumeClaimVolumeSource{
-									ClaimName: job.Spec.AutodockPvc,
-								},
-							},
-						},
-					},
+					Volumes: []corev1.Volume{pvcVolume("autodock-pvc", job.Spec.AutodockPvc)},
 				},
 			},
 		},
 	}
 
-	_, err := c.jobClient.Create(context.TODO(), jobSpec, metav1.CreateOptions{})
+	_, err := c.jobClient.Create(context.TODO(), j, metav1.CreateOptions{})
 	return err
 }
 
 func (c *DockingJobController) createSplitSdfJob(job DockingJob) (int, error) {
-	jobSpec := &Job{
+	j := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-split-sdf", job.Name),
 			Labels: map[string]string{
-				"docking.k8s.io/workflow":  job.Name,
-				"docking.k8s.io/job-type":   "split-sdf",
-				"docking.k8s.io/parent-job": job.Name,
+				"docking.khemia.io/workflow":   job.Name,
+				"docking.khemia.io/job-type":   "split-sdf",
+				"docking.khemia.io/parent-job": job.Name,
 			},
 		},
-		Spec: JobSpec{
-			TTLSecondsAfterFinished: ptr.Int32(300),
-			Template: PodTemplateSpec{
-				Spec: PodSpec{
-					RestartPolicy: "OnFailure",
-					Containers: []Container{
+		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: ptrInt32(300),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Containers: []corev1.Container{
 						{
 							Name:            "split",
 							Image:           job.Spec.Image,
-							ImagePullPolicy: "Always",
+							ImagePullPolicy: corev1.PullAlways,
 							WorkingDir:      job.Spec.MountPath,
 							Command:         []string{"/bin/sh", "-c"},
 							Args: []string{
 								fmt.Sprintf("/autodock/scripts/split_sdf.sh %d %s",
 									job.Spec.LigandsChunkSize, job.Spec.LigandDb),
 							},
-							Env: []EnvVar{
-								{
-									Name:  "MOUNT_PATH_AUTODOCK",
-									Value: job.Spec.MountPath,
-								},
+							Env: []corev1.EnvVar{
+								{Name: "MOUNT_PATH_AUTODOCK", Value: job.Spec.MountPath},
 							},
-							VolumeMounts: []VolumeMount{
-								{
-									Name:      "autodock-pvc",
-									MountPath: job.Spec.MountPath,
-								},
-							},
+							VolumeMounts: []corev1.VolumeMount{pvcMount("autodock-pvc", job.Spec.MountPath)},
 						},
 					},
-					Volumes: []Volume{
-						{
-							Name: "autodock-pvc",
-							VolumeSource: VolumeSource{
-								PersistentVolumeClaim: &PersistentVolumeClaimVolumeSource{
-									ClaimName: job.Spec.AutodockPvc,
-								},
-							},
-						},
-					},
+					Volumes: []corev1.Volume{pvcVolume("autodock-pvc", job.Spec.AutodockPvc)},
 				},
 			},
 		},
 	}
 
-	createdJob, err := c.jobClient.Create(context.TODO(), jobSpec, metav1.CreateOptions{})
+	created, err := c.jobClient.Create(context.TODO(), j, metav1.CreateOptions{})
 	if err != nil {
 		return 0, err
 	}
 
-	// Wait for job completion
-	if err := c.waitForJobCompletion(createdJob.Name); err != nil {
+	if err := c.waitForJobCompletion(created.Name); err != nil {
 		return 0, err
 	}
 
-	// In a real implementation, we'd parse the output to get the batch count
-	// For now, return a default value
 	return 5, nil
 }
 
 func (c *DockingJobController) createPrepareLigandsJob(job DockingJob, batchLabel string) error {
-	jobSpec := &Job{
+	j := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-prepare-ligands-%s", job.Name, batchLabel),
 			Labels: map[string]string{
-				"docking.k8s.io/workflow":  job.Name,
-				"docking.k8s.io/job-type":   "prepare-ligands",
-				"docking.k8s.io/batch":       batchLabel,
-				"docking.k8s.io/parent-job": job.Name,
+				"docking.khemia.io/workflow":   job.Name,
+				"docking.khemia.io/job-type":   "prepare-ligands",
+				"docking.khemia.io/batch":      batchLabel,
+				"docking.khemia.io/parent-job": job.Name,
 			},
 		},
-		Spec: JobSpec{
-			TTLSecondsAfterFinished: ptr.Int32(300),
-			Template: PodTemplateSpec{
-				Spec: PodSpec{
-					RestartPolicy: "OnFailure",
-					Containers: []Container{
+		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: ptrInt32(300),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Containers: []corev1.Container{
 						{
 							Name:            "prepare",
 							Image:           job.Spec.Image,
-							ImagePullPolicy: "Always",
+							ImagePullPolicy: corev1.PullAlways,
 							WorkingDir:      job.Spec.MountPath,
 							Command:         []string{"python3", "/autodock/scripts/ligandprepv2.py"},
 							Args: []string{
@@ -525,143 +393,95 @@ func (c *DockingJobController) createPrepareLigandsJob(job DockingJob, batchLabe
 								fmt.Sprintf("%s/output", job.Spec.MountPath),
 								"--format", "pdb",
 							},
-							Env: []EnvVar{
-								{
-									Name:  "MOUNT_PATH_AUTODOCK",
-									Value: job.Spec.MountPath,
-								},
+							Env: []corev1.EnvVar{
+								{Name: "MOUNT_PATH_AUTODOCK", Value: job.Spec.MountPath},
 							},
-							VolumeMounts: []VolumeMount{
-								{
-									Name:      "autodock-pvc",
-									MountPath: job.Spec.MountPath,
-								},
-							},
+							VolumeMounts: []corev1.VolumeMount{pvcMount("autodock-pvc", job.Spec.MountPath)},
 						},
 					},
-					Volumes: []Volume{
-						{
-							Name: "autodock-pvc",
-							VolumeSource: VolumeSource{
-								PersistentVolumeClaim: &PersistentVolumeClaimVolumeSource{
-									ClaimName: job.Spec.AutodockPvc,
-								},
-							},
-						},
-					},
+					Volumes: []corev1.Volume{pvcVolume("autodock-pvc", job.Spec.AutodockPvc)},
 				},
 			},
 		},
 	}
 
-	_, err := c.jobClient.Create(context.TODO(), jobSpec, metav1.CreateOptions{})
+	_, err := c.jobClient.Create(context.TODO(), j, metav1.CreateOptions{})
 	return err
 }
 
 func (c *DockingJobController) createDockingJobExecution(job DockingJob, batchLabel string) error {
-	jobSpec := &Job{
+	j := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-docking-%s", job.Name, batchLabel),
 			Labels: map[string]string{
-				"docking.k8s.io/workflow":  job.Name,
-				"docking.k8s.io/job-type":   "docking",
-				"docking.k8s.io/batch":       batchLabel,
-				"docking.k8s.io/parent-job": job.Name,
+				"docking.khemia.io/workflow":   job.Name,
+				"docking.khemia.io/job-type":   "docking",
+				"docking.khemia.io/batch":      batchLabel,
+				"docking.khemia.io/parent-job": job.Name,
 			},
 		},
-		Spec: JobSpec{
-			TTLSecondsAfterFinished: ptr.Int32(300),
-			Template: PodTemplateSpec{
-				Spec: PodSpec{
-					RestartPolicy: "OnFailure",
-					Containers: []Container{
+		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: ptrInt32(300),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Containers: []corev1.Container{
 						{
 							Name:            "docking",
 							Image:           job.Spec.Image,
-							ImagePullPolicy: "Always",
+							ImagePullPolicy: corev1.PullAlways,
 							WorkingDir:      job.Spec.MountPath,
 							Command:         []string{"/bin/sh", "-c"},
 							Args: []string{
 								fmt.Sprintf("/autodock/scripts/dockingv2.sh %s %s",
 									job.Spec.PDBID, batchLabel),
 							},
-							VolumeMounts: []VolumeMount{
-								{
-									Name:      "autodock-pvc",
-									MountPath: job.Spec.MountPath,
-								},
-							},
+							VolumeMounts: []corev1.VolumeMount{pvcMount("autodock-pvc", job.Spec.MountPath)},
 						},
 					},
-					Volumes: []Volume{
-						{
-							Name: "autodock-pvc",
-							VolumeSource: VolumeSource{
-								PersistentVolumeClaim: &PersistentVolumeClaimVolumeSource{
-									ClaimName: job.Spec.AutodockPvc,
-								},
-							},
-						},
-					},
+					Volumes: []corev1.Volume{pvcVolume("autodock-pvc", job.Spec.AutodockPvc)},
 				},
 			},
 		},
 	}
 
-	_, err := c.jobClient.Create(context.TODO(), jobSpec, metav1.CreateOptions{})
+	_, err := c.jobClient.Create(context.TODO(), j, metav1.CreateOptions{})
 	return err
 }
 
 func (c *DockingJobController) createPostProcessingJob(job DockingJob) error {
-	jobSpec := &Job{
+	j := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-postprocessing", job.Name),
 			Labels: map[string]string{
-				"docking.k8s.io/workflow":  job.Name,
-				"docking.k8s.io/job-type":   "postprocessing",
-				"docking.k8s.io/parent-job": job.Name,
+				"docking.khemia.io/workflow":   job.Name,
+				"docking.khemia.io/job-type":   "postprocessing",
+				"docking.khemia.io/parent-job": job.Name,
 			},
 		},
-		Spec: JobSpec{
-			TTLSecondsAfterFinished: ptr.Int32(300),
-			Template: PodTemplateSpec{
-				Spec: PodSpec{
-					RestartPolicy: "OnFailure",
-					Containers: []Container{
+		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: ptrInt32(300),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Containers: []corev1.Container{
 						{
 							Name:            "postprocess",
 							Image:           job.Spec.Image,
-							ImagePullPolicy: "Always",
+							ImagePullPolicy: corev1.PullAlways,
 							WorkingDir:      job.Spec.MountPath,
 							Command:         []string{"/autodock/scripts/3_post_processing.sh"},
-							Args: []string{
-								job.Spec.PDBID,
-								job.Spec.LigandDb,
-							},
-							VolumeMounts: []VolumeMount{
-								{
-									Name:      "autodock-pvc",
-									MountPath: job.Spec.MountPath,
-								},
-							},
+							Args:            []string{job.Spec.PDBID, job.Spec.LigandDb},
+							VolumeMounts:    []corev1.VolumeMount{pvcMount("autodock-pvc", job.Spec.MountPath)},
 						},
 					},
-					Volumes: []Volume{
-						{
-							Name: "autodock-pvc",
-							VolumeSource: VolumeSource{
-								PersistentVolumeClaim: &PersistentVolumeClaimVolumeSource{
-									ClaimName: job.Spec.AutodockPvc,
-								},
-							},
-						},
-					},
+					Volumes: []corev1.Volume{pvcVolume("autodock-pvc", job.Spec.AutodockPvc)},
 				},
 			},
 		},
 	}
 
-	_, err := c.jobClient.Create(context.TODO(), jobSpec, metav1.CreateOptions{})
+	_, err := c.jobClient.Create(context.TODO(), j, metav1.CreateOptions{})
 	return err
 }
 
@@ -693,80 +513,27 @@ func (c *DockingJobController) waitForJobCompletion(jobName string) error {
 }
 
 func (c *DockingJobController) reconcileJobs() error {
-	// In a production implementation, this would use an informer to watch
-	// DockingJob resources and reconcile them
 	return nil
 }
 
-// Minimal type definitions to avoid full k8s.io/api/batch/v1 imports
-type Job struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              JobSpec `json:"spec,omitempty"`
+// pvcVolume returns a corev1.Volume backed by a PVC
+func pvcVolume(name, claimName string) corev1.Volume {
+	return corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: claimName,
+			},
+		},
+	}
 }
 
-type JobSpec struct {
-	TTLSecondsAfterFinished *int32           `json:"ttlSecondsAfterFinished,omitempty"`
-	Template                PodTemplateSpec  `json:"template,omitempty"`
-}
-
-type PodTemplateSpec struct {
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              PodSpec `json:"spec,omitempty"`
-}
-
-type PodSpec struct {
-	RestartPolicy      string            `json:"restartPolicy,omitempty"`
-	Containers         []Container       `json:"containers,omitempty"`
-	Volumes            []Volume          `json:"volumes,omitempty"`
-}
-
-type Container struct {
-	Name            string        `json:"name,omitempty"`
-	Image           string        `json:"image,omitempty"`
-	ImagePullPolicy string        `json:"imagePullPolicy,omitempty"`
-	Command         []string      `json:"command,omitempty"`
-	Args            []string      `json:"args,omitempty"`
-	WorkingDir      string        `json:"workingDir,omitempty"`
-	Env             []EnvVar      `json:"env,omitempty"`
-	VolumeMounts    []VolumeMount `json:"volumeMounts,omitempty"`
-	Resources       ResourceRequirements `json:"resources,omitempty"`
-}
-
-type EnvVar struct {
-	Name  string `json:"name,omitempty"`
-	Value string `json:"value,omitempty"`
-}
-
-type VolumeMount struct {
-	Name      string `json:"name,omitempty"`
-	MountPath string `json:"mountPath,omitempty"`
-}
-
-type Volume struct {
-	Name        string       `json:"name,omitempty"`
-	VolumeSource VolumeSource `json:"volumeSource,omitempty"`
-}
-
-type VolumeSource struct {
-	PersistentVolumeClaim *PersistentVolumeClaimVolumeSource `json:"persistentVolumeClaim,omitempty"`
-}
-
-type PersistentVolumeClaimVolumeSource struct {
-	ClaimName string `json:"claimName,omitempty"`
-}
-
-type ResourceRequirements struct {
-	Limits   ResourceList `json:"limits,omitempty"`
-	Requests ResourceList `json:"requests,omitempty"`
-}
-
-type ResourceList map[string]resource.Quantity
-
-type DockingJobList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []DockingJob `json:"items"`
+// pvcMount returns a corev1.VolumeMount
+func pvcMount(name, mountPath string) corev1.VolumeMount {
+	return corev1.VolumeMount{
+		Name:      name,
+		MountPath: mountPath,
+	}
 }
 
 // ptrInt32 returns a pointer to an int32
@@ -777,7 +544,6 @@ func ptrInt32(i int32) *int32 {
 func main() {
 	log.Println("Docking Job Controller starting...")
 
-	// Set up signal handling
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
