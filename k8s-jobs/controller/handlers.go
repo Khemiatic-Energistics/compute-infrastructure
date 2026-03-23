@@ -1,4 +1,4 @@
-// Package api provides HTTP handlers for the docking job API
+// Package main provides HTTP handlers for the docking job API
 package main
 
 import (
@@ -6,25 +6,27 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-
-	dockingv1 "docking.k8s.io/v1"
 )
 
 // APIHandler handles HTTP requests for docking jobs
 type APIHandler struct {
-	client    *kubernetes.Clientset
-	namespace string
+	client     *kubernetes.Clientset
+	namespace  string
+	controller *DockingJobController
 }
 
 // NewAPIHandler creates a new API handler
-func NewAPIHandler(client *kubernetes.Clientset, namespace string) *APIHandler {
+func NewAPIHandler(client *kubernetes.Clientset, namespace string, controller *DockingJobController) *APIHandler {
 	return &APIHandler{
-		client:    client,
-		namespace: namespace,
+		client:     client,
+		namespace:  namespace,
+		controller: controller,
 	}
 }
 
@@ -46,27 +48,32 @@ type DockingJobResponse struct {
 	Status           string     `json:"status"`
 	BatchCount       int        `json:"batch_count"`
 	CompletedBatches int        `json:"completed_batches"`
-	Message          string     `json:"message"`
+	Message          string     `json:"message,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 	StartTime        *time.Time `json:"start_time,omitempty"`
 	CompletionTime   *time.Time `json:"completion_time,omitempty"`
 }
 
+// writeError writes a JSON error response
+func writeError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
 // ListJobs handles GET /api/v1/dockingjobs
 func (h *APIHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
-	// Get all jobs with the docking label
 	jobs, err := h.client.BatchV1().Jobs(h.namespace).List(r.Context(), metav1.ListOptions{
-		LabelSelector: "docking.k8s.io/parent-job",
+		LabelSelector: "docking.khemia.io/parent-job",
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to list jobs: %v", err), http.StatusInternalServerError)
+		writeError(w, fmt.Sprintf("failed to list jobs: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Group jobs by parent workflow
 	workflows := make(map[string][]string)
 	for _, job := range jobs.Items {
-		parentJob := job.Labels["docking.k8s.io/parent-job"]
+		parentJob := job.Labels["docking.khemia.io/parent-job"]
 		if parentJob != "" {
 			workflows[parentJob] = append(workflows[parentJob], job.Name)
 		}
@@ -83,55 +90,77 @@ func (h *APIHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	var req DockingJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		writeError(w, fmt.Sprintf("invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	// Validate required fields
-	if req.PDBID == "" {
-		req.PDBID = "7jrn"
-	}
 	if req.LigandDb == "" {
-		http.Error(w, "ligand_db is required", http.StatusBadRequest)
+		writeError(w, "ligand_db is required", http.StatusBadRequest)
 		return
+	}
+	if req.PDBID == "" {
+		req.PDBID = DefaultPDBID
 	}
 	if req.JupyterUser == "" {
-		req.JupyterUser = "jovyan"
+		req.JupyterUser = DefaultJupyterUser
+	}
+	if req.NativeLigand == "" {
+		req.NativeLigand = DefaultNativeLigand
+	}
+	if req.Image == "" {
+		req.Image = DefaultImage
+	}
+	if req.LigandsChunkSize == 0 {
+		req.LigandsChunkSize = DefaultLigandsChunkSize
 	}
 
-	// Generate unique job name
 	jobName := fmt.Sprintf("docking-%d", time.Now().Unix())
 
+	job := DockingJob{
+		ObjectMeta: metav1.ObjectMeta{Name: jobName},
+		Spec: DockingJobSpec{
+			PDBID:            req.PDBID,
+			LigandDb:         req.LigandDb,
+			JupyterUser:      req.JupyterUser,
+			NativeLigand:     req.NativeLigand,
+			LigandsChunkSize: req.LigandsChunkSize,
+			Image:            req.Image,
+			AutodockPvc:      DefaultAutodockPvc,
+			UserPvcPrefix:    DefaultUserPvcPrefix,
+			MountPath:        DefaultMountPath,
+		},
+		Status: DockingJobStatus{Phase: "Pending"},
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(DockingJobResponse{
-		Name:       jobName,
-		PDBID:      req.PDBID,
-		LigandDb:   req.LigandDb,
-		Status:     "Pending",
-		CreatedAt:  time.Now(),
+		Name:      jobName,
+		PDBID:     req.PDBID,
+		LigandDb:  req.LigandDb,
+		Status:    "Pending",
+		CreatedAt: time.Now(),
 	})
+
+	go h.controller.processDockingJob(job)
 }
 
 // GetJob handles GET /api/v1/dockingjobs/{name}
 func (h *APIHandler) GetJob(w http.ResponseWriter, r *http.Request) {
-	// Extract job name from request (simplified)
-	jobName := r.URL.Query().Get("name")
+	jobName := strings.TrimPrefix(r.URL.Path, "/api/v1/dockingjobs/")
 	if jobName == "" {
-		http.Error(w, "name parameter required", http.StatusBadRequest)
+		writeError(w, "job name required", http.StatusBadRequest)
 		return
 	}
 
-	// Get all jobs for this workflow
 	jobs, err := h.client.BatchV1().Jobs(h.namespace).List(r.Context(), metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("docking.k8s.io/parent-job=%s", jobName),
+		LabelSelector: fmt.Sprintf("docking.khemia.io/parent-job=%s", jobName),
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get job: %v", err), http.StatusInternalServerError)
+		writeError(w, fmt.Sprintf("failed to get job: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Calculate status based on child jobs
 	status := "Pending"
 	completed := 0
 	total := len(jobs.Items)
@@ -162,18 +191,17 @@ func (h *APIHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 
 // DeleteJob handles DELETE /api/v1/dockingjobs/{name}
 func (h *APIHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
-	jobName := r.URL.Query().Get("name")
+	jobName := strings.TrimPrefix(r.URL.Path, "/api/v1/dockingjobs/")
 	if jobName == "" {
-		http.Error(w, "name parameter required", http.StatusBadRequest)
+		writeError(w, "job name required", http.StatusBadRequest)
 		return
 	}
 
-	// Delete all jobs with this parent label
 	jobs, err := h.client.BatchV1().Jobs(h.namespace).List(r.Context(), metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("docking.k8s.io/parent-job=%s", jobName),
+		LabelSelector: fmt.Sprintf("docking.khemia.io/parent-job=%s", jobName),
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to list jobs: %v", err), http.StatusInternalServerError)
+		writeError(w, fmt.Sprintf("failed to list jobs: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -188,42 +216,40 @@ func (h *APIHandler) DeleteJob(w http.ResponseWriter, r *http.Request) {
 
 // GetLogs handles GET /api/v1/dockingjobs/{name}/logs
 func (h *APIHandler) GetLogs(w http.ResponseWriter, r *http.Request) {
-	jobName := r.URL.Query().Get("name")
+	trimmed := strings.TrimPrefix(r.URL.Path, "/api/v1/dockingjobs/")
+	jobName := strings.TrimSuffix(trimmed, "/logs")
 	taskType := r.URL.Query().Get("task")
 
 	if jobName == "" {
-		http.Error(w, "name parameter required", http.StatusBadRequest)
+		writeError(w, "job name required", http.StatusBadRequest)
 		return
 	}
 
-	// Find the specific job
-	labelSelector := fmt.Sprintf("docking.k8s.io/parent-job=%s", jobName)
+	labelSelector := fmt.Sprintf("docking.khemia.io/parent-job=%s", jobName)
 	if taskType != "" {
-		labelSelector = fmt.Sprintf("docking.k8s.io/parent-job=%s,docking.k8s.io/job-type=%s", jobName, taskType)
+		labelSelector = fmt.Sprintf("docking.khemia.io/parent-job=%s,docking.khemia.io/job-type=%s", jobName, taskType)
 	}
 
 	jobs, err := h.client.BatchV1().Jobs(h.namespace).List(r.Context(), metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil || len(jobs.Items) == 0 {
-		http.Error(w, "Job not found", http.StatusNotFound)
+		writeError(w, "job not found", http.StatusNotFound)
 		return
 	}
 
-	// Get pods for the job
 	pods, err := h.client.CoreV1().Pods(h.namespace).List(r.Context(), metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("job-name=%s", jobs.Items[0].Name),
 	})
 	if err != nil || len(pods.Items) == 0 {
-		http.Error(w, "Pods not found", http.StatusNotFound)
+		writeError(w, "pods not found", http.StatusNotFound)
 		return
 	}
 
-	// Get logs from the first pod
-	logs, err := h.client.CoreV1().Pods(h.namespace).GetLogs(pods.Items[0].Name, &metav1.PodLogOptions{}).
+	logs, err := h.client.CoreV1().Pods(h.namespace).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{}).
 		Do(r.Context()).Raw()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
+		writeError(w, fmt.Sprintf("failed to get logs: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -238,4 +264,10 @@ func (h *APIHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 		"status": "healthy",
 		"time":   time.Now().Format(time.RFC3339),
 	})
+}
+
+// ReadinessCheck handles GET /readyz
+func (h *APIHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 }

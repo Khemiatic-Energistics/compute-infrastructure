@@ -3,33 +3,33 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: docking-controller
-  namespace: default
+  namespace: chem
   labels:
-    app: docking-controller
+    app.kubernetes.io/name: docking-controller
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: docking-controller
+      app.kubernetes.io/name: docking-controller
   template:
     metadata:
       labels:
-        app: docking-controller
+        app.kubernetes.io/name: docking-controller
     spec:
       serviceAccountName: docking-controller
+      imagePullSecrets:
+        - name: zot-pull-secret
       containers:
         - name: controller
-          image: docking-controller:latest
-          imagePullPolicy: IfNotPresent
+          image: zot.hwcopeland.net/chem/docking-controller:latest # {"$imagepolicy": "chem:docking-controller"}
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
               name: http
               protocol: TCP
           env:
             - name: NAMESPACE
-              value: "default"
-            - name: KUBECONFIG
-              value: "/etc/kubernetes/admin.conf"
+              value: "chem"
           resources:
             requests:
               cpu: 100m
@@ -45,27 +45,19 @@ spec:
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /health
+              path: /readyz
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 5
-          volumeMounts:
-            - name: kubeconfig
-              mountPath: /etc/kubernetes
-              readOnly: true
-      volumes:
-        - name: kubeconfig
-          secret:
-            secretName: kubernetes-admin
 ---
 # Service for the Docking Job Controller
 apiVersion: v1
 kind: Service
 metadata:
   name: docking-controller
-  namespace: default
+  namespace: chem
   labels:
-    app: docking-controller
+    app.kubernetes.io/name: docking-controller
 spec:
   type: ClusterIP
   ports:
@@ -74,22 +66,4 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app: docking-controller
----
-# Service with LoadBalancer for external access
-apiVersion: v1
-kind: Service
-metadata:
-  name: docking-controller-lb
-  namespace: default
-  labels:
-    app: docking-controller
-spec:
-  type: LoadBalancer
-  ports:
-    - port: 80
-      targetPort: 8080
-      protocol: TCP
-      name: http
-  selector:
-    app: docking-controller
+    app.kubernetes.io/name: docking-controller
