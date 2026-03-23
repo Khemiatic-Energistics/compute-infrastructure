@@ -35,7 +35,7 @@ on:
 jobs:
   build-and-push:
     name: Build ${{ matrix.name }}
-    runs-on: [self-hosted, arc-chem]
+    runs-on: arc-chem
     strategy:
       fail-fast: false
       matrix:
